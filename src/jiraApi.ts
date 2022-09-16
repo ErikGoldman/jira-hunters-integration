@@ -58,12 +58,26 @@ export function GetFieldID(
   return Object.keys(names).find((k) => names[k] === fieldName);
 }
 
-export async function getUnsetBasicTicketsInProject() {
+export async function getTicketsToEnrich(
+  statusField: string,
+  hasEnrichedField: string
+) {
   const unsetTicketsBasic: {
     issues: JiraIssue[];
     names: JiraNameMap;
   } = await makeJiraRequest("search", {
-    jql: `project = "${JIRA_PROJECT}" AND "${UUID_FIELD_NAME}" IS NOT EMPTY AND "${EVENT_HAPPENED_FIELD}" IS EMPTY`,
+    jql: `project = "${JIRA_PROJECT}" AND "${UUID_FIELD_NAME}" IS NOT EMPTY AND "${statusField}" = "completed" AND ${hasEnrichedField} IS EMPTY`,
+    expand: ["names"],
+  });
+  return unsetTicketsBasic;
+}
+
+export async function getUnsetTicketsInProject(leadStatusField: string) {
+  const unsetTicketsBasic: {
+    issues: JiraIssue[];
+    names: JiraNameMap;
+  } = await makeJiraRequest("search", {
+    jql: `project = "${JIRA_PROJECT}" AND "${UUID_FIELD_NAME}" IS NOT EMPTY AND ("${leadStatusField}" IS EMPTY OR "${leadStatusField}" ~ "in progress")`,
     expand: ["names"],
   });
   return unsetTicketsBasic;
