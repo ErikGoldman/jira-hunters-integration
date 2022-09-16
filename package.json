@@ -1,7 +1,7 @@
 {
   "scripts": {
-    "debug": "node --inspect-brk -r ts-node/register src/index.ts",
-    "dev": "set -a && source local-env-vars.txt && set +a && node -r ts-node/register src/index.ts"
+    "dev": "set -a && source local-env-vars.txt && set +a && node -r ts-node/register src/index.ts",
+    "debug": "set -a && source local-env-vars.txt && set +a && node --inspect-brk -r ts-node/register src/index.ts"
   },
   "dependencies": {
     "@types/jira-client": "^7.1.4",

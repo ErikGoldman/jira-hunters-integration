@@ -12,17 +12,19 @@ const JIRA_HOSTNAME = process.env.JIRA_HOSTNAME;
 const JIRA_PROJECT = process.env.JIRA_PROJECT;
 
 const UUID_FIELD_NAME = "UUID";
-const EVENT_HAPPENED_FIELD = "Event happened";
 
 const AUTH_TOKEN =
   "ZXJpay5nb2xkbWFuQGh1bnRlcnMuYWk6cmFiNHFUTm0wb1FUNjBhcnNjcFVCMDAy";
 
 async function makeJiraRequest(
-  url: string,
+  relativeUrl: string,
   body: any,
   method: string = "POST"
 ) {
-  const res = await fetch(`https://${JIRA_HOSTNAME}/rest/api/3/${url}`, {
+  const url = `https://${JIRA_HOSTNAME}/rest/api/3/${relativeUrl}`;
+
+  console.log(`Making Jira request to ${url}`);
+  const res = await fetch(url, {
     body: JSON.stringify(body),
     method,
     headers: {
@@ -32,52 +34,69 @@ async function makeJiraRequest(
     },
   });
   if (!res.ok) {
-    throw new Error(
+    console.error(
       `Error making Jira request; ${res.status}: ${res.statusText}`
     );
+    const body = await res.json();
+    throw new Error(JSON.stringify(body));
   }
 
-  return res.json();
+  try {
+    if (method !== "PUT") {
+      const jsonRes = await res.json();
+      return jsonRes;
+    }
+    return {};
+  } catch (e) {
+    console.error("Could not translate Jira response into JSON");
+    console.log(await res.text());
+    return {};
+  }
 }
 
-interface JiraIssue {
+export interface JiraIssue {
   id: string;
   fields: { [k: string]: any };
 }
-type JiraNameMap = { [fieldId: string]: string };
-
-async function fetchAndSetBasicProperties(
-  issue: JiraIssue,
-  names: JiraNameMap
-) {}
+export type JiraNameMap = { [fieldId: string]: string };
+export interface JiraTicketResponse {
+  issues: JiraIssue[];
+  names: JiraNameMap;
+}
 
 export function GetFieldID(
   names: JiraNameMap,
   fieldName: string
 ): string | undefined {
-  return Object.keys(names).find((k) => names[k] === fieldName);
+  return Object.keys(names).find(
+    (k) => names[k].toLocaleLowerCase() === fieldName.toLocaleLowerCase()
+  );
 }
 
 export async function getTicketsToEnrich(
   statusField: string,
   hasEnrichedField: string
-) {
+): Promise<JiraTicketResponse> {
   const unsetTicketsBasic: {
     issues: JiraIssue[];
     names: JiraNameMap;
   } = await makeJiraRequest("search", {
-    jql: `project = "${JIRA_PROJECT}" AND "${UUID_FIELD_NAME}" IS NOT EMPTY AND "${statusField}" = "completed" AND ${hasEnrichedField} IS EMPTY`,
+    jql: `project = "${JIRA_PROJECT}" AND "${UUID_FIELD_NAME}" IS NOT EMPTY AND "${statusField}" ~ "completed" AND "${hasEnrichedField}" IS EMPTY`,
     expand: ["names"],
   });
   return unsetTicketsBasic;
 }
 
-export async function getUnsetTicketsInProject(leadStatusField: string) {
+export async function getUnsetTicketsInProject(
+  leadStatusField: string
+): Promise<JiraTicketResponse> {
+  const jql = `project = "${JIRA_PROJECT}" AND "${UUID_FIELD_NAME}" IS NOT EMPTY AND ("${leadStatusField}" IS EMPTY OR "${leadStatusField}" ~ "in progress")`;
+  console.log(jql);
   const unsetTicketsBasic: {
     issues: JiraIssue[];
     names: JiraNameMap;
   } = await makeJiraRequest("search", {
-    jql: `project = "${JIRA_PROJECT}" AND "${UUID_FIELD_NAME}" IS NOT EMPTY AND ("${leadStatusField}" IS EMPTY OR "${leadStatusField}" ~ "in progress")`,
+    jql,
     expand: ["names"],
   });
   return unsetTicketsBasic;
@@ -101,4 +120,5 @@ export async function setIssueFields(
       );
     })
   );
+  console.log("Done setting issue fields");
 }

@@ -1,8 +1,9 @@
-import { HuntersAPI } from "./huntersApi";
+import { HuntersAPI, HuntersME, KindMapping } from "./huntersApi";
 import {
   GetFieldID,
   getTicketsToEnrich,
   getUnsetTicketsInProject,
+  JiraTicketResponse,
   setIssueFields,
 } from "./jiraApi";
 
@@ -20,15 +21,15 @@ IOC-Domain/URL - should have comma separated values in case more than 1
 IOC-IPAddress - should have comma separated values in case more than 1
 */
 
-const BASIC_FIELDS = {
+const FIELDS = {
   DETECTION_TOOL: "Detection Tool",
   OTHER_DETECTION_TOOL: "Other Detection tool",
   EVENT_HAPPENED: "Event happened",
   EVENT_DETECTED: "Event Detected",
   SEVERITY: "Severity",
-};
+  INVESTIGATION_STATE_FIELD: "Investigation state",
+  HAS_ENRICHED_FIELD: "Has enriched",
 
-const ENRICHMENT_FIELDS = {
   CONFIGURATION_ITEM: "Configuration Item",
   AFFECTED_USER: "Affected user",
   IOC_HASH: "IOC-Hash",
@@ -37,81 +38,13 @@ const ENRICHMENT_FIELDS = {
   IOC_IP: "IOC-IPAddress",
 };
 
-const LEAD_STATUS_FIELD = "Lead status";
-const HAS_ENRICHED_FIELD = "Has enriched";
-
 const huntersApi = new HuntersAPI();
 
-async function RunBasic() {
-  console.log("Fetching basic unset Jira tickets");
-  const jiraTicketsBasic = await getUnsetTicketsInProject(LEAD_STATUS_FIELD);
-
-  if (!jiraTicketsBasic.issues || jiraTicketsBasic.issues.length === 0) {
-    return;
-  }
-
-  const uuidFieldId = GetFieldID(jiraTicketsBasic.names, "UUID");
-  if (!uuidFieldId) {
-    throw new Error("Could not find UUID field ID");
-  }
-  const uuidList: Array<[string, string]> = jiraTicketsBasic.issues.map(
-    (issue) => [issue.id, issue.fields[uuidFieldId] as string]
-  );
-  console.log(`Got back basic UUIDs ${JSON.stringify(uuidList)}`);
-
-  const JiraBasicFieldMapping: { [k: string]: string } = {};
-  Object.values(BASIC_FIELDS).forEach((field) => {
-    const fieldId = GetFieldID(jiraTicketsBasic.names, field);
-    if (!fieldId) {
-      throw new Error(`Could not find Jira field ${fieldId}`);
-    }
-    JiraBasicFieldMapping[field] = fieldId;
-  });
-
-  if (uuidList.length === 0) {
-    console.log("No uuids to process");
-  }
-  const huntersUUids = uuidList.map((uuidTuple) => uuidTuple[1]);
-  console.log(
-    `Fetching Hunters UUIDs for basic fields: ${JSON.stringify(huntersUUids)}`
-  );
-  const huntersLeads = await huntersApi.fetchUuids(huntersUUids);
-  console.log(JSON.stringify(huntersLeads));
-
-  const data = huntersLeads.map((lead) => {
-    const matchingJiraId = uuidList.find((tuple) => tuple[1] === lead.uuid);
-    if (!matchingJiraId) {
-      throw new Error(`Could not find ${lead.uuid} in Jira list`);
-    }
-    return {
-      issueID: parseInt(matchingJiraId[0], 10),
-      fields: {
-        [JiraBasicFieldMapping[BASIC_FIELDS.DETECTION_TOOL]]: "Hunters",
-        [JiraBasicFieldMapping[BASIC_FIELDS.OTHER_DETECTION_TOOL]]: lead.source,
-        [JiraBasicFieldMapping[BASIC_FIELDS.EVENT_HAPPENED]]: lead.event_time,
-        [JiraBasicFieldMapping[BASIC_FIELDS.EVENT_DETECTED]]:
-          lead.detection_time,
-        [JiraBasicFieldMapping[BASIC_FIELDS.SEVERITY]]:
-          lead.risk === "high" || lead.risk === "critical" ? "P2" : "P4",
-        [LEAD_STATUS_FIELD]: lead.status,
-      },
-    };
-  });
-
-  await setIssueFields(data);
-}
-
-async function RunEnrichment() {
-  //https://api.us.hunters.ai/v1/mega-entities/{lead_uuid}
-
-  console.log("Fetching enrichment unset Jira tickets");
-  const jiraTickets = await getTicketsToEnrich(
-    LEAD_STATUS_FIELD,
-    HAS_ENRICHED_FIELD
-  );
-
+function GetUUIDsToProcess(
+  jiraTickets: JiraTicketResponse
+): [Array<[string, string]>, { [fieldName: string]: string }] {
   if (!jiraTickets.issues || jiraTickets.issues.length === 0) {
-    return;
+    return [[], {}];
   }
 
   const uuidFieldId = GetFieldID(jiraTickets.names, "UUID");
@@ -122,19 +55,171 @@ async function RunEnrichment() {
     issue.id,
     issue.fields[uuidFieldId] as string,
   ]);
-  console.log(`Got back enrichment UUIDs ${JSON.stringify(uuidList)}`);
+  console.log(`Got UUIDs ${JSON.stringify(uuidList)}`);
+
+  if (uuidList.length === 0) {
+    return [[], {}];
+  }
 
   const JiraBasicFieldMapping: { [k: string]: string } = {};
-  Object.values(BASIC_FIELDS).forEach((field) => {
+  Object.values(FIELDS).forEach((field) => {
     const fieldId = GetFieldID(jiraTickets.names, field);
     if (!fieldId) {
-      throw new Error(`Could not find Jira field ${fieldId}`);
+      throw new Error(`Could not find Jira field ${field}`);
     }
     JiraBasicFieldMapping[field] = fieldId;
   });
+
+  if (uuidList.length === 0) {
+    console.log("No uuids to process");
+  }
+  return [uuidList, JiraBasicFieldMapping];
+}
+
+async function RunBasic() {
+  console.log("Fetching basic unset Jira tickets");
+  const jiraTicketsBasic = await getUnsetTicketsInProject(
+    FIELDS.INVESTIGATION_STATE_FIELD
+  );
+
+  const [uuidList, JiraBasicFieldMapping] = GetUUIDsToProcess(jiraTicketsBasic);
+  const huntersUUids = uuidList.map((uuidTuple) => uuidTuple[1]);
+
+  if (huntersUUids.length === 0) {
+    console.log("No basic UUIDs");
+    return;
+  }
+
+  console.log(
+    `Fetching Hunters UUIDs for basic fields: ${JSON.stringify(huntersUUids)}`
+  );
+  const huntersLeads = await huntersApi.fetchFromUuids(huntersUUids);
+
+  const data = huntersLeads.map((lead) => {
+    const matchingJiraId = uuidList.find((tuple) => tuple[1] === lead.uuid);
+    if (!matchingJiraId) {
+      throw new Error(`Could not find ${lead.uuid} in Jira list`);
+    }
+    return {
+      issueID: parseInt(matchingJiraId[0], 10),
+      fields: {
+        [JiraBasicFieldMapping[FIELDS.DETECTION_TOOL]]: "Hunters",
+        [JiraBasicFieldMapping[FIELDS.OTHER_DETECTION_TOOL]]: lead.source,
+        [JiraBasicFieldMapping[FIELDS.EVENT_HAPPENED]]: lead.event_time,
+        [JiraBasicFieldMapping[FIELDS.EVENT_DETECTED]]: lead.detection_time,
+        [JiraBasicFieldMapping[FIELDS.SEVERITY]]:
+          lead.risk === "high" || lead.risk === "critical" ? "P2" : "P4",
+        [JiraBasicFieldMapping[FIELDS.INVESTIGATION_STATE_FIELD]]:
+          lead.investigation_state,
+      },
+    };
+  });
+
+  await setIssueFields(data);
+}
+
+function getMEValueOrEmpty(
+  meResponse: HuntersME[],
+  highLevelKind: keyof typeof KindMapping
+) {
+  const matchingAttributes = meResponse
+    .map((me) =>
+      Object.values(me.attributes).map((attr) =>
+        attr && KindMapping[highLevelKind].find((k) => k === attr.kind)
+          ? me.attributes[attr.name].value
+          : undefined
+      )
+    )
+    .flat()
+    .filter((x) => x) as string[];
+  if (matchingAttributes.length === 0) {
+    return "";
+  }
+  return matchingAttributes.join(",");
+}
+
+async function RunEnrichment() {
+  console.log("Fetching enrichment unset Jira tickets");
+  const jiraTickets = await getTicketsToEnrich(
+    FIELDS.INVESTIGATION_STATE_FIELD,
+    FIELDS.HAS_ENRICHED_FIELD
+  );
+
+  const [uuidList, JiraFieldMapping] = GetUUIDsToProcess(jiraTickets);
+  const huntersUUids = uuidList.map((uuidTuple) => uuidTuple[1]);
+
+  if (huntersUUids.length === 0) {
+    console.log("No enrichment UUIDs");
+    return;
+  }
+
+  console.log(
+    `Fetching Hunters megaentities for enrichment fields: ${JSON.stringify(
+      huntersUUids
+    )}`
+  );
+  const huntersMEs = await huntersApi.fetchMegaentities(huntersUUids);
+
+  const data = huntersMEs.map((me) => {
+    const matchingJiraId = uuidList.find(
+      (tuple) => tuple[1] === me[0].lead_uuid
+    );
+    if (!matchingJiraId) {
+      throw new Error(`Could not find ${me[0].lead_uuid} in Jira list`);
+    }
+
+    const fields: { [k: string]: string } = {};
+    if (me && me.length !== 0) {
+      console.log(
+        `Got ME attributes for ${me[0].lead_uuid}: ${JSON.stringify(
+          me.map((m) => m.attributes),
+          null,
+          2
+        )}`
+      );
+      fields[JiraFieldMapping[FIELDS.CONFIGURATION_ITEM]] = getMEValueOrEmpty(
+        me,
+        "hostname"
+      );
+      fields[JiraFieldMapping[FIELDS.AFFECTED_USER]] = getMEValueOrEmpty(
+        me,
+        "username"
+      );
+      fields[JiraFieldMapping[FIELDS.IOC_DOMAIN]] = getMEValueOrEmpty(
+        me,
+        "domain"
+      );
+      fields[JiraFieldMapping[FIELDS.IOC_HASH]] = getMEValueOrEmpty(me, "hash");
+      fields[JiraFieldMapping[FIELDS.IOC_URL]] = getMEValueOrEmpty(me, "url");
+      fields[JiraFieldMapping[FIELDS.IOC_IP]] = getMEValueOrEmpty(me, "ip");
+    }
+    fields[JiraFieldMapping[FIELDS.HAS_ENRICHED_FIELD]] = "true";
+
+    return {
+      issueID: parseInt(matchingJiraId[0], 10),
+      fields,
+    };
+  });
+
+  await setIssueFields(data);
+}
+
+// just for testing
+async function GetInterestingUUIDs() {
+  const leads = await huntersApi.fetchAllUUIDs();
+  const MEs = await huntersApi.fetchMegaentities(
+    leads.slice(5, 35).map((lead) => lead.uuid)
+  );
+  return MEs.filter((me) =>
+    me.find((e) => Object.values(e.attributes).find((a) => a.value))
+  )
+    .filter((x) => x)
+    .map((m) => m[0].lead_uuid);
 }
 
 async function main() {
+  // console.log(JSON.stringify(await GetInterestingUUIDs(), null, 2));
+
   await RunBasic();
   await RunEnrichment();
 }
