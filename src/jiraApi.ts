@@ -7,14 +7,15 @@ if (!process.env.JIRA_PROJECT) {
 if (!process.env.JIRA_API_TOKEN) {
   throw new Error("JIRA_API_TOKEN environment variable not set");
 }
+if (!process.env.JIRA_API_EMAIL) {
+  throw new Error("JIRA_API_EMAIL environment variable not set");
+}
 
 const JIRA_HOSTNAME = process.env.JIRA_HOSTNAME;
 const JIRA_PROJECT = process.env.JIRA_PROJECT;
-
-const UUID_FIELD_NAME = "UUID";
-
-const AUTH_TOKEN =
-  "ZXJpay5nb2xkbWFuQGh1bnRlcnMuYWk6cmFiNHFUTm0wb1FUNjBhcnNjcFVCMDAy";
+const JIRA_AUTH_TOKEN = Buffer.from(
+  `${process.env.JIRA_API_EMAIL}:${process.env.JIRA_API_TOKEN}`
+).toString("base64");
 
 async function makeJiraRequest(
   relativeUrl: string,
@@ -29,7 +30,7 @@ async function makeJiraRequest(
     method,
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Basic ${AUTH_TOKEN}`,
+      Authorization: `Basic ${JIRA_AUTH_TOKEN}`,
       Accept: "application/json",
     },
   });
@@ -75,22 +76,23 @@ export function GetFieldID(
 
 export async function getTicketsToEnrich(
   statusField: string,
-  hasEnrichedField: string
+  hasEnrichedField: string,
+  uuidField: string
 ): Promise<JiraTicketResponse> {
   const unsetTicketsBasic: {
     issues: JiraIssue[];
     names: JiraNameMap;
   } = await makeJiraRequest("search", {
-    jql: `project = "${JIRA_PROJECT}" AND "${UUID_FIELD_NAME}" IS NOT EMPTY AND "${statusField}" ~ "completed" AND "${hasEnrichedField}" IS EMPTY`,
+    jql: `project = "${JIRA_PROJECT}" AND "${uuidField}" IS NOT EMPTY AND "${statusField}" ~ "completed" AND "${hasEnrichedField}" IS EMPTY`,
     expand: ["names"],
   });
   return unsetTicketsBasic;
 }
 
-export async function getUnsetTicketsInProject(
-  leadStatusField: string
+export async function getTicketsWithoutUUID(
+  uuidField: string
 ): Promise<JiraTicketResponse> {
-  const jql = `project = "${JIRA_PROJECT}" AND "${UUID_FIELD_NAME}" IS NOT EMPTY AND ("${leadStatusField}" IS EMPTY OR "${leadStatusField}" ~ "in progress")`;
+  const jql = `project = "${JIRA_PROJECT}" AND "${uuidField}" IS EMPTY`;
   console.log(jql);
   const unsetTicketsBasic: {
     issues: JiraIssue[];
@@ -100,6 +102,47 @@ export async function getUnsetTicketsInProject(
     expand: ["names"],
   });
   return unsetTicketsBasic;
+}
+
+export async function getUnsetTicketsInProject(
+  leadStatusField: string,
+  uuidField: string
+): Promise<JiraTicketResponse> {
+  const jql = `project = "${JIRA_PROJECT}" AND "${uuidField}" IS NOT EMPTY AND ("${leadStatusField}" IS EMPTY OR "${leadStatusField}" ~ "in progress")`;
+  console.log(jql);
+  const unsetTicketsBasic: {
+    issues: JiraIssue[];
+    names: JiraNameMap;
+  } = await makeJiraRequest("search", {
+    jql,
+    expand: ["names"],
+  });
+  return unsetTicketsBasic;
+}
+
+interface JiraDescriptionContent {
+  type: string;
+  text?: string;
+  content?: JiraDescriptionContent[];
+}
+export function flattenDescriptionText(
+  description: JiraDescriptionContent | undefined | string
+): string[] {
+  if (!description) {
+    return [];
+  }
+  if (typeof description === "string") {
+    return [description];
+  }
+
+  const continuation = description.content
+    ? description.content.map((c) => flattenDescriptionText(c)).flat()
+    : [];
+
+  if (description.text) {
+    return [description.text, ...continuation];
+  }
+  return continuation;
 }
 
 export async function setIssueFields(

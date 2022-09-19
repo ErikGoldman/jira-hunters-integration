@@ -1,11 +1,15 @@
 import { HuntersAPI, HuntersME, KindMapping } from "./huntersApi";
 import {
+  flattenDescriptionText,
   GetFieldID,
   getTicketsToEnrich,
+  getTicketsWithoutUUID,
   getUnsetTicketsInProject,
   JiraTicketResponse,
   setIssueFields,
 } from "./jiraApi";
+
+const REFRESH_INTERVAL = 1000 * 60 * 5;
 
 /*
 Detection Tool: Hunters
@@ -29,6 +33,7 @@ const FIELDS = {
   SEVERITY: "Severity",
   INVESTIGATION_STATE_FIELD: "Investigation state",
   HAS_ENRICHED_FIELD: "Has enriched",
+  UUID: "UUID",
 
   CONFIGURATION_ITEM: "Configuration Item",
   AFFECTED_USER: "Affected user",
@@ -39,6 +44,18 @@ const FIELDS = {
 };
 
 const huntersApi = new HuntersAPI();
+
+export function InvertJiraFieldMapping(names: { [k: string]: string }) {
+  const JiraBasicFieldMapping: { [k: string]: string } = {};
+  Object.values(FIELDS).forEach((field) => {
+    const fieldId = GetFieldID(names, field);
+    if (!fieldId) {
+      throw new Error(`Could not find Jira field ${field}`);
+    }
+    JiraBasicFieldMapping[field] = fieldId;
+  });
+  return JiraBasicFieldMapping;
+}
 
 function GetUUIDsToProcess(
   jiraTickets: JiraTicketResponse
@@ -61,25 +78,17 @@ function GetUUIDsToProcess(
     return [[], {}];
   }
 
-  const JiraBasicFieldMapping: { [k: string]: string } = {};
-  Object.values(FIELDS).forEach((field) => {
-    const fieldId = GetFieldID(jiraTickets.names, field);
-    if (!fieldId) {
-      throw new Error(`Could not find Jira field ${field}`);
-    }
-    JiraBasicFieldMapping[field] = fieldId;
-  });
-
   if (uuidList.length === 0) {
     console.log("No uuids to process");
   }
-  return [uuidList, JiraBasicFieldMapping];
+  return [uuidList, InvertJiraFieldMapping(jiraTickets.names)];
 }
 
 async function RunBasic() {
   console.log("Fetching basic unset Jira tickets");
   const jiraTicketsBasic = await getUnsetTicketsInProject(
-    FIELDS.INVESTIGATION_STATE_FIELD
+    FIELDS.INVESTIGATION_STATE_FIELD,
+    FIELDS.UUID
   );
 
   const [uuidList, JiraBasicFieldMapping] = GetUUIDsToProcess(jiraTicketsBasic);
@@ -142,7 +151,8 @@ async function RunEnrichment() {
   console.log("Fetching enrichment unset Jira tickets");
   const jiraTickets = await getTicketsToEnrich(
     FIELDS.INVESTIGATION_STATE_FIELD,
-    FIELDS.HAS_ENRICHED_FIELD
+    FIELDS.HAS_ENRICHED_FIELD,
+    FIELDS.UUID
   );
 
   const [uuidList, JiraFieldMapping] = GetUUIDsToProcess(jiraTickets);
@@ -217,11 +227,67 @@ async function GetInterestingUUIDs() {
     .map((m) => m[0].lead_uuid);
 }
 
-async function main() {
-  // console.log(JSON.stringify(await GetInterestingUUIDs(), null, 2));
+const UUID_REGEX =
+  /([0-9a-fA-F]{8}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{12})/;
 
-  await RunBasic();
-  await RunEnrichment();
+async function RunUUID() {
+  console.log("Getting tickets without UUID");
+  const ticketsWithoutUUID = await getTicketsWithoutUUID(FIELDS.UUID);
+  if (ticketsWithoutUUID.issues.length === 0) {
+    console.log("No tickets without UUID");
+    return;
+  }
+
+  const fieldMapping = InvertJiraFieldMapping(ticketsWithoutUUID.names);
+  const uuidField = fieldMapping[FIELDS.UUID];
+
+  const uuids = ticketsWithoutUUID.issues.map((ish) => {
+    const ticketDescription = flattenDescriptionText(ish.fields.description);
+    console.log(
+      `Flattened ${JSON.stringify(
+        ish.fields.description
+      )} to ${ticketDescription}`
+    );
+
+    let possibleUUIDs = ticketDescription.filter((s) => UUID_REGEX.test(s));
+    if (possibleUUIDs.length > 1) {
+      console.log(`Got multiple potential UUIDs for ${ish.id}`);
+      possibleUUIDs = possibleUUIDs.filter(
+        (s) => s.toLowerCase().indexOf("uuid") !== -1
+      );
+    }
+
+    if (possibleUUIDs.length === 0) {
+      console.error(`Could not match a UUID for ${ish.id}`);
+      return { issueID: parseInt(ish.id, 10), fields: {} };
+    }
+
+    const match = possibleUUIDs[0].match(UUID_REGEX);
+    if (!match) {
+      console.error(`Couldn't get a match for regex on ${ish.id}`);
+      return { issueID: parseInt(ish.id, 10), fields: {} };
+    }
+    return {
+      issueID: parseInt(ish.id, 10),
+      fields: { [uuidField]: match[1] },
+    };
+  });
+
+  await setIssueFields(uuids);
+}
+
+async function main() {
+  while (true) {
+    await RunUUID();
+    await RunBasic();
+    await RunEnrichment();
+
+    console.log("Sleeping...");
+    await new Promise<void>((resolve, reject) => {
+      setInterval(resolve, REFRESH_INTERVAL);
+    });
+    console.log("Waking up...");
+  }
 }
 
 main().catch((e) => console.error(e));

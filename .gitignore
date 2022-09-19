@@ -1,5 +1,5 @@
 node_modules
-local-env-vars.txt
+local-env-vars*
 yarn-error.log
 build
 .vscode

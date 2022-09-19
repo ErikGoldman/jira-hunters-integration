@@ -1,6 +1,7 @@
 {
   "scripts": {
     "dev": "set -a && source local-env-vars.txt && set +a && node -r ts-node/register src/index.ts",
+    "start": "node -r ts-node/register src/index.ts",
     "debug": "set -a && source local-env-vars.txt && set +a && node --inspect-brk -r ts-node/register src/index.ts"
   },
   "dependencies": {
