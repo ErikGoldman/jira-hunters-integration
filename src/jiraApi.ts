@@ -83,7 +83,7 @@ export async function getTicketsToEnrich(
     issues: JiraIssue[];
     names: JiraNameMap;
   } = await makeJiraRequest("search", {
-    jql: `project = "${JIRA_PROJECT}" AND "${uuidField}" IS NOT EMPTY AND "${statusField}" ~ "completed" AND "${hasEnrichedField}" IS EMPTY`,
+    jql: `project = "${JIRA_PROJECT}" AND issuetype="Security Incident Record" AND "${uuidField}" IS NOT EMPTY AND "${statusField}" ~ "completed" AND "${hasEnrichedField}" IS EMPTY`,
     expand: ["names"],
   });
   return unsetTicketsBasic;
@@ -92,7 +92,7 @@ export async function getTicketsToEnrich(
 export async function getTicketsWithoutUUID(
   uuidField: string
 ): Promise<JiraTicketResponse> {
-  const jql = `project = "${JIRA_PROJECT}" AND "${uuidField}" IS EMPTY`;
+  const jql = `project = "${JIRA_PROJECT}" AND issuetype="Security Incident Record" AND "${uuidField}" IS EMPTY`;
   console.log(jql);
   const unsetTicketsBasic: {
     issues: JiraIssue[];
@@ -108,7 +108,7 @@ export async function getUnsetTicketsInProject(
   leadStatusField: string,
   uuidField: string
 ): Promise<JiraTicketResponse> {
-  const jql = `project = "${JIRA_PROJECT}" AND "${uuidField}" IS NOT EMPTY AND ("${leadStatusField}" IS EMPTY OR "${leadStatusField}" ~ "in progress")`;
+  const jql = `project = "${JIRA_PROJECT}" AND issuetype="Security Incident Record" AND "${uuidField}" IS NOT EMPTY AND ("${leadStatusField}" IS EMPTY OR "${leadStatusField}" ~ "in progress")`;
   console.log(jql);
   const unsetTicketsBasic: {
     issues: JiraIssue[];
