@@ -64,7 +64,7 @@ function GetUUIDsToProcess(
     return [[], {}];
   }
 
-  const uuidFieldId = GetFieldID(jiraTickets.names, "UUID");
+  const uuidFieldId = GetFieldID(jiraTickets.names, FIELDS.UUID);
   if (!uuidFieldId) {
     throw new Error("Could not find UUID field ID");
   }
