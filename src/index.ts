@@ -84,6 +84,42 @@ function GetUUIDsToProcess(
   return [uuidList, InvertJiraFieldMapping(jiraTickets.names)];
 }
 
+function logSourceToJiraDetectionTool(logSource: string): string {
+  const validTools: { [k: string]: string } = {
+    "Atlassian Audit": "atlassian",
+    AWS: "aws",
+    "Cisco Meraki": "meraki",
+    Cloudflare: "cloudflare",
+    "Crowdstrike EDR": "crowdstrike",
+    GitHub: "github",
+    Intune: "intune",
+    Lacework: "lacework",
+    Mimecast: "mimecast",
+    Netskope: "netskope",
+    NOS: "nos",
+    O365: "o365",
+    Okta: "okta",
+    RiskSense: "risksense",
+    Sophos: "sophos",
+  };
+
+  const normalized = logSource.toLocaleLowerCase().trim();
+  const foundValue = Object.keys(validTools)
+    .map((k) => {
+      if (normalized.includes(validTools[k])) {
+        return k;
+      }
+      return undefined;
+    })
+    .find((x) => x);
+
+  if (foundValue) {
+    return foundValue;
+  }
+
+  return "Other";
+}
+
 async function RunBasic() {
   console.log("Fetching basic unset Jira tickets");
   const jiraTicketsBasic = await getUnsetTicketsInProject(
@@ -112,12 +148,18 @@ async function RunBasic() {
     return {
       issueID: parseInt(matchingJiraId[0], 10),
       fields: {
-        [JiraBasicFieldMapping[FIELDS.DETECTION_TOOL]]: "Hunters",
-        [JiraBasicFieldMapping[FIELDS.OTHER_DETECTION_TOOL]]: lead.source,
+        [JiraBasicFieldMapping[FIELDS.DETECTION_TOOL]]: { value: "Hunters" },
+        [JiraBasicFieldMapping[FIELDS.OTHER_DETECTION_TOOL]]: {
+          value: logSourceToJiraDetectionTool(lead.source),
+        },
         [JiraBasicFieldMapping[FIELDS.EVENT_HAPPENED]]: lead.event_time,
         [JiraBasicFieldMapping[FIELDS.EVENT_DETECTED]]: lead.detection_time,
-        [JiraBasicFieldMapping[FIELDS.SEVERITY]]:
-          lead.risk === "high" || lead.risk === "critical" ? "P2" : "P4",
+        [JiraBasicFieldMapping[FIELDS.SEVERITY]]: {
+          value:
+            lead.risk === "high" || lead.risk === "critical"
+              ? "P2-Major"
+              : "P4-Trivial",
+        },
         [JiraBasicFieldMapping[FIELDS.INVESTIGATION_STATE_FIELD]]:
           lead.investigation_state,
       },

@@ -145,6 +145,15 @@ export function flattenDescriptionText(
   return continuation;
 }
 
+export async function getIssueMetaFields(issueId: number) {
+  const res = await makeJiraRequest(
+    `issue/${issueId}/editmeta`,
+    undefined,
+    "GET"
+  );
+  console.log(JSON.stringify(res, null, 2));
+}
+
 export async function setIssueFields(
   data: Array<{
     issueID: number;
@@ -154,6 +163,7 @@ export async function setIssueFields(
   console.log(`Setting issue fields for ${JSON.stringify(data, null, 2)}`);
   await Promise.all(
     data.map(async (props) => {
+      // const fields = await getIssueMetaFields(props.issueID);
       return makeJiraRequest(
         `issue/${props.issueID}`,
         {
