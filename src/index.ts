@@ -212,46 +212,51 @@ async function RunEnrichment() {
   );
   const huntersMEs = await huntersApi.fetchMegaentities(huntersUUids);
 
-  const data = huntersMEs.map((me) => {
-    const matchingJiraId = uuidList.find(
-      (tuple) => tuple[1] === me[0].lead_uuid
-    );
-    if (!matchingJiraId) {
-      throw new Error(`Could not find ${me[0].lead_uuid} in Jira list`);
-    }
+  const data = huntersMEs
+    .filter((x) => x && x[0])
+    .map((me) => {
+      const matchingJiraId = uuidList.find(
+        (tuple) => tuple[1] === me[0].lead_uuid
+      );
+      if (!matchingJiraId) {
+        throw new Error(`Could not find ${me[0].lead_uuid} in Jira list`);
+      }
 
-    const fields: { [k: string]: string } = {};
-    if (me && me.length !== 0) {
-      console.log(
-        `Got ME attributes for ${me[0].lead_uuid}: ${JSON.stringify(
-          me.map((m) => m.attributes),
-          null,
-          2
-        )}`
-      );
-      fields[JiraFieldMapping[FIELDS.CONFIGURATION_ITEM]] = getMEValueOrEmpty(
-        me,
-        "hostname"
-      );
-      fields[JiraFieldMapping[FIELDS.AFFECTED_USER]] = getMEValueOrEmpty(
-        me,
-        "username"
-      );
-      fields[JiraFieldMapping[FIELDS.IOC_DOMAIN]] = getMEValueOrEmpty(
-        me,
-        "domain"
-      );
-      fields[JiraFieldMapping[FIELDS.IOC_HASH]] = getMEValueOrEmpty(me, "hash");
-      fields[JiraFieldMapping[FIELDS.IOC_URL]] = getMEValueOrEmpty(me, "url");
-      fields[JiraFieldMapping[FIELDS.IOC_IP]] = getMEValueOrEmpty(me, "ip");
-    }
-    fields[JiraFieldMapping[FIELDS.HAS_ENRICHED_FIELD]] = "true";
+      const fields: { [k: string]: string } = {};
+      if (me && me.length !== 0) {
+        console.log(
+          `Got ME attributes for ${me[0].lead_uuid}: ${JSON.stringify(
+            me.map((m) => m.attributes),
+            null,
+            2
+          )}`
+        );
+        fields[JiraFieldMapping[FIELDS.CONFIGURATION_ITEM]] = getMEValueOrEmpty(
+          me,
+          "hostname"
+        );
+        fields[JiraFieldMapping[FIELDS.AFFECTED_USER]] = getMEValueOrEmpty(
+          me,
+          "username"
+        );
+        fields[JiraFieldMapping[FIELDS.IOC_DOMAIN]] = getMEValueOrEmpty(
+          me,
+          "domain"
+        );
+        fields[JiraFieldMapping[FIELDS.IOC_HASH]] = getMEValueOrEmpty(
+          me,
+          "hash"
+        );
+        fields[JiraFieldMapping[FIELDS.IOC_URL]] = getMEValueOrEmpty(me, "url");
+        fields[JiraFieldMapping[FIELDS.IOC_IP]] = getMEValueOrEmpty(me, "ip");
+      }
+      fields[JiraFieldMapping[FIELDS.HAS_ENRICHED_FIELD]] = "true";
 
-    return {
-      issueID: parseInt(matchingJiraId[0], 10),
-      fields,
-    };
-  });
+      return {
+        issueID: parseInt(matchingJiraId[0], 10),
+        fields,
+      };
+    });
 
   await setIssueFields(data);
 }
