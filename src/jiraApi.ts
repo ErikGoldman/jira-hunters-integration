@@ -163,14 +163,25 @@ export async function setIssueFields(
   console.log(`Setting issue fields for ${JSON.stringify(data, null, 2)}`);
   await Promise.all(
     data.map(async (props) => {
-      // const fields = await getIssueMetaFields(props.issueID);
-      return makeJiraRequest(
-        `issue/${props.issueID}`,
-        {
-          fields: props.fields,
-        },
-        "PUT"
-      );
+      let res;
+      try {
+        res = await makeJiraRequest(
+          `issue/${props.issueID}`,
+          {
+            fields: props.fields,
+          },
+          "PUT"
+        );
+      } catch (e) {
+        console.error(
+          `Error setting field for ${props.issueID} ${JSON.stringify(
+            props.fields,
+            null,
+            2
+          )}`
+        );
+        console.error(e);
+      }
     })
   );
   console.log("Done setting issue fields");
