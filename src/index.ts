@@ -231,14 +231,16 @@ async function RunEnrichment() {
             2
           )}`
         );
+
+        const username = getMEValueOrEmpty(me, "username");
+
         fields[JiraFieldMapping[FIELDS.CONFIGURATION_ITEM]] = getMEValueOrEmpty(
           me,
           "hostname"
         );
-        fields[JiraFieldMapping[FIELDS.AFFECTED_USER]] = getMEValueOrEmpty(
-          me,
-          "username"
-        );
+        fields[JiraFieldMapping[FIELDS.AFFECTED_USER]] = username
+          ? username
+          : "nouser";
         fields[JiraFieldMapping[FIELDS.IOC_DOMAIN]] = getMEValueOrEmpty(
           me,
           "domain"
