@@ -1,3 +1,5 @@
+import Bottleneck from "bottleneck";
+
 if (!process.env.JIRA_HOSTNAME) {
   throw new Error("JIRA_HOSTNAME environment variable not set");
 }
@@ -17,6 +19,11 @@ const JIRA_AUTH_TOKEN = Buffer.from(
   `${process.env.JIRA_API_EMAIL}:${process.env.JIRA_API_TOKEN}`
 ).toString("base64");
 
+const limiter = new Bottleneck({
+  maxConcurrent: 1,
+  minTime: 50,
+});
+
 async function makeJiraRequest(
   relativeUrl: string,
   body: any,
@@ -25,15 +32,18 @@ async function makeJiraRequest(
   const url = `https://${JIRA_HOSTNAME}/rest/api/3/${relativeUrl}`;
 
   console.log(`Making Jira request to ${url}`);
-  const res = await fetch(url, {
-    body: JSON.stringify(body),
-    method,
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Basic ${JIRA_AUTH_TOKEN}`,
-      Accept: "application/json",
-    },
-  });
+  const res = await limiter.schedule(
+    async () =>
+      await fetch(url, {
+        body: JSON.stringify(body),
+        method,
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Basic ${JIRA_AUTH_TOKEN}`,
+          Accept: "application/json",
+        },
+      })
+  );
   if (!res.ok) {
     console.error(
       `Error making Jira request; ${res.status}: ${res.statusText}`
@@ -74,16 +84,38 @@ export function GetFieldID(
   );
 }
 
+export async function addComment(issueId: string, comment: string) {
+  return makeJiraRequest(`issue/${issueId}/comment`, {
+    body: {
+      type: "doc",
+      version: 1,
+      content: [
+        {
+          type: "paragraph",
+          content: [
+            {
+              text: comment,
+              type: "text",
+            },
+          ],
+        },
+      ],
+    },
+  });
+}
+
 export async function getTicketsToEnrich(
   statusField: string,
   hasEnrichedField: string,
   uuidField: string
 ): Promise<JiraTicketResponse> {
+  const jql = `project = "${JIRA_PROJECT}" AND issuetype="Security Incident Record" AND "${uuidField}" IS NOT EMPTY AND "${statusField}" ~ "completed" AND "${hasEnrichedField}" IS EMPTY`;
+  console.log(jql);
   const unsetTicketsBasic: {
     issues: JiraIssue[];
     names: JiraNameMap;
   } = await makeJiraRequest("search", {
-    jql: `project = "${JIRA_PROJECT}" AND issuetype="Security Incident Record" AND "${uuidField}" IS NOT EMPTY AND "${statusField}" ~ "completed" AND "${hasEnrichedField}" IS EMPTY`,
+    jql: jql,
     expand: ["names"],
   });
   return unsetTicketsBasic;

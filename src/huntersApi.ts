@@ -1,3 +1,5 @@
+import Bottleneck from "bottleneck";
+
 if (!process.env.HUNTERS_API_CLIENT_ID) {
   throw new Error("HUNTERS_API_CLIENT_ID environment variable not set");
 }
@@ -7,6 +9,10 @@ if (!process.env.HUNTERS_API_SECRET_KEY) {
 
 const HUNTERS_API_CLIENT_ID = process.env.HUNTERS_API_CLIENT_ID;
 const HUNTERS_API_SECRET_KEY = process.env.HUNTERS_API_SECRET_KEY;
+
+const limiter = new Bottleneck({
+  maxConcurrent: 1,
+});
 
 export interface HuntersLead {
   uuid: string;
@@ -70,16 +76,19 @@ export class HuntersAPI {
 
   async authenticate() {
     console.log("Authenticating");
-    const res = await fetch(`https://api.us.hunters.ai/v1/auth/api-token`, {
-      body: JSON.stringify({
-        clientId: HUNTERS_API_CLIENT_ID,
-        secret: HUNTERS_API_SECRET_KEY,
-      }),
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-    });
+    const res = await limiter.schedule(
+      async () =>
+        await fetch(`https://api.us.hunters.ai/v1/auth/api-token`, {
+          body: JSON.stringify({
+            clientId: HUNTERS_API_CLIENT_ID,
+            secret: HUNTERS_API_SECRET_KEY,
+          }),
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+        })
+    );
 
     const body: { accessToken: string; refreshToken: string } =
       await res.json();

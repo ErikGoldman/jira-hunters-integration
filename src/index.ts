@@ -222,7 +222,7 @@ async function RunEnrichment() {
         throw new Error(`Could not find ${me[0].lead_uuid} in Jira list`);
       }
 
-      const fields: { [k: string]: string } = {};
+      const fields: { [k: string]: string | [{ name: string }] } = {};
       if (me && me.length !== 0) {
         console.log(
           `Got ME attributes for ${me[0].lead_uuid}: ${JSON.stringify(
@@ -238,9 +238,11 @@ async function RunEnrichment() {
           me,
           "hostname"
         );
-        fields[JiraFieldMapping[FIELDS.AFFECTED_USER]] = username
-          ? username
-          : "nouser";
+        fields[JiraFieldMapping[FIELDS.AFFECTED_USER]] = [
+          {
+            name: username ? username : "erik.goldman@hunters.ai",
+          },
+        ];
         fields[JiraFieldMapping[FIELDS.IOC_DOMAIN]] = getMEValueOrEmpty(
           me,
           "domain"
